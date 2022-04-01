@@ -28,6 +28,7 @@
 ****************************************/
 
 #include <ESP8266WiFi.h>                    //  Library for WiFi Connection
+#include <XXH32.h>
 #include <AP3216_WE.h>                      //  Library for AP3216
 #include <TinyGPSPlus.h>                    //  Library for L70 BEE
 #include <SoftwareSerial.h>                 //  Library for Serial Ports
@@ -39,18 +40,18 @@
 #include <ArduinoJson.h>                    //  Library for Easy Json Creation
 #include <WiFiClientSecureBearSSL.h>        //  Library for validation of HTTPS Certificate
 
+XXH32 xx32;
 TinyGPSPlus gps;
 SoftwareSerial ss(13, 15);                  //  Using Pin 13 for Transmision (Tx) and Pin 15 for Reception (Rx)
 ESP8266WiFiMulti WiFiMulti;
 ClosedCube_HDC1080 temp_hum_sensor;
 AP3216_WE lux_sensor          = AP3216_WE();
 
+char* ENCRYPT_KEY             = "https://www.youtube.com/watch?v=eshyEOsRZnM";
 const char* ID                = "363699";
-const char* STASSID           = "UPBWiFi";
-//const char* STASSID           = "TIGO-2A72";                          //  Your SSID
-const char* STAPSK            = "";
-//const char* STAPSK            = "1000404305Nc7TQx";                   //  Your password
-const char* SERVER_IP         = "https://44.203.114.71/sensor_data"; //  Complete route
+const char* STASSID           = "TIGO-2A72";                          //  Your SSID
+const char* STAPSK            = "1000404305Nc7TQx";                   //  Your password
+const char* SERVER_IP         = "https://54.161.61.161/sensor_data"; //  Complete route
 //  Fingerprint of your SSL Certificate.
 const uint8_t fingerprint[20] = {0xD3, 0x5D, 0xFE, 0xF0, 0xAF, 0x61, 0xC1, 0x66, 0x9B, 0x05, 0x53, 0x3B, 0xBA, 0x44, 0x72, 0x93, 0x05, 0xE9, 0xF5, 0x18};
 const uint16_t GPSBaud        = 9600;                                 //  Frecuency for data exchange rate between GPS and Arduino
@@ -142,14 +143,6 @@ String PRUNING(double arr[]) {
 
 //  Construction of body for POST
 void BUNDLING() {
-
-  TIMESTAMP = "2022/03/29_01:42:51";
-  LATITUD = "6.18";
-  LONGITUD = "-75.61";
-  ALTITUD = "750.80";
-  TEMPERATURE = "24.56";
-  HUMIDITY = "77.72";
-  LUX = "16.80";
   
   DATAGRAM = "";
   PARTIAL_DATAGRAM = "";
@@ -159,7 +152,7 @@ void BUNDLING() {
   JsonObject data     = doc_1.to<JsonObject>();
   data["identifier"]  = ID;
   data["sequence"]    = String(SEQUENCE);
-  data["TIMESTAMP"]   = TIMESTAMP;
+  data["timestamp"]   = TIMESTAMP;
   data["latitud"]     = LATITUD;
   data["longitud"]    = LONGITUD;
   data["altitud"]     = ALTITUD;
@@ -169,12 +162,52 @@ void BUNDLING() {
 
   serializeJson(doc_1, PARTIAL_DATAGRAM);
 
+  String checksum = HASHING();
+  char cstr[checksum.length() + 1];
+  checksum.toCharArray(cstr, checksum.length() + 1);
+  String signature = String(XORENC(cstr, ENCRYPT_KEY));
+  
   JsonObject root     = doc_2.to<JsonObject>();
   root["data"]        = PARTIAL_DATAGRAM;
-  root["checksum"]    = "CHECKSUM";
-  root["signature"]   = "sign";
+  root["checksum"]    = checksum;
+  root["signature"]   = signature;
 
   serializeJson(doc_2, DATAGRAM);
+  //serializeJsonPretty(DATAGRAM, Serial);
+}
+
+String HASHING() {
+  char buffer32[9];
+  int len = PARTIAL_DATAGRAM.length();
+  const char *partial_data_char = PARTIAL_DATAGRAM.c_str();
+  return xx32.hash(partial_data_char, buffer32);
+}
+
+//  Encryption for Checksum for Non-Repudation
+char* XORENC(char* in, char* key){
+  // Brad @ pingturtle.com
+  int insize = strlen(in);
+  int keysize = strlen(key);
+  for(int x=0; x<insize; x++){
+    for(int i=0; i<keysize;i++){
+      in[x]=(in[x]^key[i])^(x*i);
+    }
+    Serial.printf(" x_1: %d", in[x]);
+    in[x] = CORRECTION(in[x]);
+    Serial.printf(" x_2: %d", in[x]);
+  }
+  return in;
+}
+
+uint8_t CORRECTION(uint8_t x) {
+  if (x > 126) {
+    x -= 126;
+    CORRECTION(x);
+  }
+  if (x < 33) {
+    x += 33;
+  }
+  return x;
 }
 
 void SENDING() {
@@ -243,9 +276,10 @@ void setup() {
 
 void loop() {
   SEQUENCE++;
-  //SMART_DELAY(15000);
-  //TEMP_HUMIDITY_COLLECTION();
-  //LUX_COLLECTION();
+  SMART_DELAY(15000);
+  TEMP_HUMIDITY_COLLECTION();
+  LUX_COLLECTION();
   BUNDLING();
+  Serial.println(DATAGRAM);
   SENDING();
 }
