@@ -28,13 +28,12 @@
 ****************************************/
 
 #include <ESP8266WiFi.h>                    //  Library for WiFi Connection
-#include <XXH32.h>
+#include <XXH32.h>                          //  Livrary for Hash
 #include <AP3216_WE.h>                      //  Library for AP3216
 #include <TinyGPSPlus.h>                    //  Library for L70 BEE
 #include <SoftwareSerial.h>                 //  Library for Serial Ports
 #include <ESP8266WiFiMulti.h>               //  Library for WiFi Connection
 #include <ClosedCube_HDC1080.h>             //  Library for HDC 1080
-#include <Hash.h>                           //  Library for Hash
 #include <ESP8266HTTPClient.h>              //  Library for HTTO
 #include <Arduino.h>                        //  Library for Arduino SDK
 #include <ArduinoJson.h>                    //  Library for Easy Json Creation
@@ -51,7 +50,7 @@ char* ENCRYPT_KEY             = "https://www.youtube.com/watch?v=eshyEOsRZnM";
 const char* ID                = "363699";
 const char* STASSID           = "TIGO-2A72";                          //  Your SSID
 const char* STAPSK            = "1000404305Nc7TQx";                   //  Your password
-const char* SERVER_IP         = "https://54.161.61.161/sensor_data"; //  Complete route
+const char* SERVER_IP         = "https://18.206.161.38/sensor_data"; //  Complete route
 //  Fingerprint of your SSL Certificate.
 const uint8_t fingerprint[20] = {0xD3, 0x5D, 0xFE, 0xF0, 0xAF, 0x61, 0xC1, 0x66, 0x9B, 0x05, 0x53, 0x3B, 0xBA, 0x44, 0x72, 0x93, 0x05, 0xE9, 0xF5, 0x18};
 const uint16_t GPSBaud        = 9600;                                 //  Frecuency for data exchange rate between GPS and Arduino
@@ -165,7 +164,19 @@ void BUNDLING() {
   String checksum = HASHING();
   char cstr[checksum.length() + 1];
   checksum.toCharArray(cstr, checksum.length() + 1);
-  String signature = String(XORENC(cstr, ENCRYPT_KEY));
+  char* sign_char = XORENC(cstr, ENCRYPT_KEY);
+  
+  String signature;
+  char temp[5];
+  for (int i = 0; i < strlen(sign_char); i++) {
+    sprintf(temp, "0x%x", sign_char[i]);
+    if (i == strlen(sign_char) - 1) {
+      signature += temp;
+    } else {
+      signature += temp;
+      signature += ":";
+    }
+  }
   
   JsonObject root     = doc_2.to<JsonObject>();
   root["data"]        = PARTIAL_DATAGRAM;
@@ -173,7 +184,6 @@ void BUNDLING() {
   root["signature"]   = signature;
 
   serializeJson(doc_2, DATAGRAM);
-  //serializeJsonPretty(DATAGRAM, Serial);
 }
 
 String HASHING() {
@@ -192,22 +202,8 @@ char* XORENC(char* in, char* key){
     for(int i=0; i<keysize;i++){
       in[x]=(in[x]^key[i])^(x*i);
     }
-    Serial.printf(" x_1: %d", in[x]);
-    in[x] = CORRECTION(in[x]);
-    Serial.printf(" x_2: %d", in[x]);
   }
   return in;
-}
-
-uint8_t CORRECTION(uint8_t x) {
-  if (x > 126) {
-    x -= 126;
-    CORRECTION(x);
-  }
-  if (x < 33) {
-    x += 33;
-  }
-  return x;
 }
 
 void SENDING() {
@@ -238,8 +234,6 @@ void SENDING() {
     }
     https.end();
   }
-  //Serial.println("Wait 10s before next round...");
-  //delay(10000);
 }
 void setup() {
 
